@@ -55,4 +55,5 @@ registry = "git://mirrors.ustc.edu.cn/crates.io-index"
 参考资料：
 
 https://developer.mozilla.org/zh-CN/docs/WebAssembly/Rust_to_wasm
+
 https://rustwasm.github.io/wasm-bindgen/examples/without-a-bundler.html

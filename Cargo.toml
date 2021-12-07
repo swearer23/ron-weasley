@@ -13,3 +13,7 @@ wasm-bindgen = { version = "0.2.78" }
 data-encoding = "2.3.2"
 ring = "0.16.20"
 getrandom = { version = "0.2", features = ["js"] }
+
+[profile.release]
+lto = true
+opt-level = 's'

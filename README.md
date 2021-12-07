@@ -42,11 +42,13 @@ touch config
 
 然后编辑config文件，添加如下内容：
 
+```
 [source.crates-io]
 registry = "https://github.com/rust-lang/crates.io-index"
 replace-with = 'ustc'
 [source.ustc]
 registry = "git://mirrors.ustc.edu.cn/crates.io-index"
+```
 
 即可更换为ustc的源
 

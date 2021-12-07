@@ -9,8 +9,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-wasm-bindgen = { version = "0.2", target = "web" }
+wasm-bindgen = { version = "0.2.78" }
 data-encoding = "2.3.2"
 ring = "0.16.20"
-uuid = { version = "0.8", features = ["v4", "wasm-bindgen"] }
 getrandom = { version = "0.2", features = ["js"] }

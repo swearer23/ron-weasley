@@ -29,7 +29,7 @@ extern "C" {
 pub fn valid_window_domain () -> bool {
     let location: web_sys::Location = web_sys::window().unwrap().location();
     let hostname: String = location.hostname().unwrap();
-    let valid_hosts = vec!["longfor.com", "longhu.net"];
+    let valid_hosts = std::env!("VALID_DOMAIN").split(",");
     let mut valid = false;
     for host in valid_hosts {
         if hostname.contains(host) {

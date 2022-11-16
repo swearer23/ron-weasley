@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 wasm-bindgen = { version = "0.2.78" }
 data-encoding = "2.3.2"
 ring = "0.16.20"
+uuid = { version = "0.8", features = ["v4"] }
 getrandom = { version = "0.2", features = ["js"] }
 syn = "1.0.103"
 web-sys = { version = "0.3", features = ["Window", "console", "Location"] }

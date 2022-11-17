@@ -1,6 +1,5 @@
 extern crate wasm_bindgen;
 
-use ring::hmac;
 use data_encoding::BASE64;
 use data_encoding::HEXUPPER;
 use wasm_bindgen::prelude::*;
@@ -112,25 +111,25 @@ pub fn ron_weasley_sign () -> Result<JsValue, JsError> {
 
     let cnonce_group = generate_cnonce();
 
-    // hash origin uuid, and random factor
+    log(&format!("random_factor: {}", cnonce_group.random_factor.to_string()));
 
+    // hash origin uuid, and random factor
     let mut hasher = Sha256::new();
-    hasher.update(format!("{}|{}", cnonce_group.uuid, cnonce_group.random_factor.to_string()).as_bytes());
+    hasher.update(format!("{}|{}", cnonce_group.uuid.as_simple(), cnonce_group.random_factor.to_string()).as_bytes());
     let sha256_result = hasher.finalize();
     let sha256_result_str = format!("{}", HEXUPPER.encode(sha256_result.as_ref()));
 
+    log(&format!("sha256_result_str: {}", sha256_result_str));
+
     // // rsa signature of rsa private key and sha256 hash as salt
-    let salt = rsa_signature(PRIVATE_KEY.to_string(), &sha256_result_str);
+    let b64_encoded_sig = rsa_signature(PRIVATE_KEY.to_string(), &sha256_result_str);
 
     // hmac sign by salt and sha256 hash
-    let key = hmac::Key::new(hmac::HMAC_SHA512, salt.as_bytes());
-    let mac = hmac::sign(&key, sha256_result_str.as_bytes());
-    let b64_encoded_sig = BASE64.encode(mac.as_ref());
     let mut obfuscated_uuid_str = cnonce_group.uuid.as_simple().to_string();
     obfuscated_uuid_str.push_str(&(cnonce_group.public_factor.to_string()));
     let result = SignatureFactors {
         cnonce: obfuscated_uuid_str,
-        signature: b64_encoded_sig.to_uppercase()
+        signature: b64_encoded_sig
     };
     Ok(serde_wasm_bindgen::to_value(&result).unwrap())
 }

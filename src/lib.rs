@@ -5,18 +5,27 @@ use ring::digest::{Context, SHA256};
 use data_encoding::BASE64;
 use data_encoding::HEXUPPER;
 use wasm_bindgen::prelude::*;
-use web_sys;
 use uuid::Uuid;
+use rand::Rng;
+use serde::{Serialize, Deserialize};
+use serde;
+use web_sys;
+use sha2::{Sha256};
 
-struct UUID_Group {
-    uuid: str,
-    obfuscated_uuid: str,
+use rsa::pkcs1v15::{SigningKey};
+use rsa::RsaPrivateKey;
+use pkcs8::DecodePrivateKey;
+use rsa::signature::Signer;
+
+struct CnonceGroup {
+    uuid: uuid::Uuid,
+    public_factor: i64,
     random_factor: i64
 }
-
-struct Signature_factors {
-    uuid: str,
-    signature: str
+#[derive(Serialize, Deserialize)]
+struct SignatureFactors {
+    cnonce: String,
+    signature: String
 }
 
 #[wasm_bindgen]
@@ -45,32 +54,34 @@ fn rsa_signature (private_key: String, data: &str) -> String {
             data.push_str(&line);
             data
         });
+    
+    let der_bytes = BASE64.decode(&der_encoded.as_bytes()).expect("failed to decode base64 content");
 
-    let der_bytes = Base64::decode(&der_encoded).expect("failed to decode base64 content");
-    let keypair = PKey::private_key_from_der(&der_bytes).expect("failed to parse private key");
+    let rsa_private_key = match RsaPrivateKey::from_pkcs8_der(&der_bytes) {
+        Ok(key) => key,
+        Err(err) => return format!("failed to parse private key: {}", err)
+    };
 
-    let data = b"hello, world!";
+    let signing_key = SigningKey::<Sha256>::new(rsa_private_key);
 
-    let mut signer = Signer::new(MessageDigest::sha256(), &keypair).unwrap();
-    signer.update(data).unwrap();
-    let signature = signer.sign_to_vec().unwrap();
-    let signature_base64 = Base64::encode(signature);
+    let signature = signing_key.sign(data.as_bytes());
+
+    let signature_base64 = BASE64.encode(&signature);
+
+    return signature_base64;
 }
 
-fn generate_cnonce() -> String {
+fn generate_cnonce() -> CnonceGroup {
     let uuid = Uuid::new_v4();
     let mut rng = rand::thread_rng();
     let random_factor: i64 = rng.gen_range(0..1000000);
     let public_factor: i64 = random_factor * 19801;
-    let obsfucated_factor: i64 = public_factor * 20201;
+    // let obsfucated_factor: i64 = public_factor * 20201;
 
-    let mut uuid_str = uuid.to_simple().to_string();
-    let public_factor_str = public_factor.to_string();
-    uuid_str.push_str(&public_factor_str);
-    return UUID_Group {
-        uuid: uuid.to_simple().to_string(),
-        obfuscated_uuid: uuid_str,
-        random_factor: random_factor.to_string()
+    return CnonceGroup {
+        uuid: uuid,
+        public_factor: public_factor,
+        random_factor: random_factor
     };
 }
 
@@ -89,7 +100,7 @@ pub fn valid_window_domain () -> bool {
 }
 
 #[wasm_bindgen]
-pub fn ron_weasley_sign (message: &str) -> Result<String, JsError> {
+pub fn ron_weasley_sign () -> Result<JsValue, JsError> {
 
     let valid_window: bool = valid_window_domain();
 
@@ -98,28 +109,30 @@ pub fn ron_weasley_sign (message: &str) -> Result<String, JsError> {
         return Err(JsError::new("invalid browser environment"))
     }
 
-    const private_key: &str = std::env!("PRIVATE_KEY");
-
+    const PRIVATE_KEY: &str = std::env!("PRIVATE_KEY");
 
     let cnonce_group = generate_cnonce();
 
-    // hash message, origin uuid, and random factor
+    // hash origin uuid, and random factor
     let mut context = Context::new(&SHA256);
-    context.update(format!("{}|{}|{}", cnonce_group.uuid, cnonce_group.random_factor, message).as_bytes());
+    context.update(format!("{}|{}", cnonce_group.uuid, cnonce_group.random_factor.to_string()).as_bytes());
     let sha256_result = context.finish();
     let sha256_result_str = format!("{}", HEXUPPER.encode(sha256_result.as_ref()));
 
-    // rsa signature of rsa private key and sha256 hash as salt
-    let salt = rsa_signature(private_key, sha256_result_str);
+    // // rsa signature of rsa private key and sha256 hash as salt
+    let salt = rsa_signature(PRIVATE_KEY.to_string(), &sha256_result_str);
 
     // hmac sign by salt and sha256 hash
     let key = hmac::Key::new(hmac::HMAC_SHA512, salt.as_bytes());
     let mac = hmac::sign(&key, sha256_result_str.as_bytes());
     let b64_encoded_sig = BASE64.encode(mac.as_ref());
-    Ok(Signature_factors {
-        uuid: cnonce_group.obfuscated_uuid,
+    let mut obfuscated_uuid_str = cnonce_group.uuid.as_simple().to_string();
+    obfuscated_uuid_str.push_str(&(cnonce_group.public_factor.to_string()));
+    let result = SignatureFactors {
+        cnonce: obfuscated_uuid_str,
         signature: b64_encoded_sig.to_uppercase()
-    })
+    };
+    Ok(serde_wasm_bindgen::to_value(&result).unwrap())
 }
 
 #[cfg(test)]

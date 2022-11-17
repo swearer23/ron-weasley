@@ -1,7 +1,6 @@
 extern crate wasm_bindgen;
 
 use ring::hmac;
-use ring::digest::{Context, SHA256};
 use data_encoding::BASE64;
 use data_encoding::HEXUPPER;
 use wasm_bindgen::prelude::*;
@@ -10,7 +9,7 @@ use rand::Rng;
 use serde::{Serialize, Deserialize};
 use serde;
 use web_sys;
-use sha2::{Sha256};
+use sha2::{Sha256, Digest};
 
 use rsa::pkcs1v15::{SigningKey};
 use rsa::RsaPrivateKey;
@@ -114,9 +113,10 @@ pub fn ron_weasley_sign () -> Result<JsValue, JsError> {
     let cnonce_group = generate_cnonce();
 
     // hash origin uuid, and random factor
-    let mut context = Context::new(&SHA256);
-    context.update(format!("{}|{}", cnonce_group.uuid, cnonce_group.random_factor.to_string()).as_bytes());
-    let sha256_result = context.finish();
+
+    let mut hasher = Sha256::new();
+    hasher.update(format!("{}|{}", cnonce_group.uuid, cnonce_group.random_factor.to_string()).as_bytes());
+    let sha256_result = hasher.finalize();
     let sha256_result_str = format!("{}", HEXUPPER.encode(sha256_result.as_ref()));
 
     // // rsa signature of rsa private key and sha256 hash as salt

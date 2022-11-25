@@ -53,8 +53,7 @@ fn generate_cnonce() -> CnonceGroup {
     };
 }
 
-#[wasm_bindgen]
-pub fn valid_window_domain () -> bool {
+fn valid_window_domain () -> bool {
     let location: web_sys::Location = web_sys::window().unwrap().location();
     let hostname: String = location.hostname().unwrap();
     let valid_hosts = std::env!("VALID_DOMAIN").split(",");
@@ -68,7 +67,7 @@ pub fn valid_window_domain () -> bool {
 }
 
 #[wasm_bindgen]
-pub fn ron_weasley_sign () -> Result<JsValue, JsError> {
+pub fn sign () -> Result<JsValue, JsError> {
 
     let valid_window: bool = valid_window_domain();
 
@@ -78,10 +77,13 @@ pub fn ron_weasley_sign () -> Result<JsValue, JsError> {
     }
 
     const SECRET: &str = std::env!("SECRET");
+    const ENV: &str = std::env!("ENV");
 
     let cnonce_group = generate_cnonce();
 
-    log(&format!("random_factor: {}", cnonce_group.random_factor.to_string()));
+    if ENV == "uat" {
+        log(&format!("random_factor: {}", cnonce_group.random_factor.to_string()));
+    }
 
     // hash origin uuid, and random factor
     let mut context = Context::new(&SHA256);
@@ -93,13 +95,17 @@ pub fn ron_weasley_sign () -> Result<JsValue, JsError> {
     let sha256_result = context.finish();
     let sha256_result_str = base64::encode(sha256_result.as_ref());
 
-    log(&format!("sha256_result_str: {}", sha256_result_str));
+    if ENV == "UAT" {
+        log(&format!("sha256_result_str: {}", sha256_result_str));
+    }
 
     let key = hmac::Key::new(hmac::HMAC_SHA512, SECRET.as_bytes());
     let mac = hmac::sign(&key, sha256_result_str.as_bytes());
     let b64_encoded_sig = base64::encode(mac.as_ref());
 
-    log(&format!("b64_encoded_sig: {}", b64_encoded_sig));
+    if ENV == "uat" {
+        log(&format!("b64_encoded_sig: {}", b64_encoded_sig));
+    }
 
 
     // hmac sign by salt and sha256 hash

@@ -4,11 +4,12 @@ use wasm_bindgen::prelude::*;
 use uuid::Uuid;
 use rand::Rng;
 use ring::{hmac};
-use ring::digest::{Context, SHA256};
+use ring::digest::{Context, SHA256, SHA512};
 use serde::{Serialize, Deserialize};
 use serde;
 use web_sys;
 use base64;
+use std::io::{Error, ErrorKind};
 
 struct CnonceGroup {
     uuid: uuid::Uuid,
@@ -66,8 +67,18 @@ fn valid_window_domain () -> bool {
     return valid
 }
 
+fn valid_current_url (url: String) -> Result<String, Error> {
+    let location: web_sys::Location = web_sys::window().unwrap().location();
+    let current_url: String = location.href().unwrap();
+    if current_url.eq(&url) {
+        return Ok(current_url);
+    } else {
+        return Err(Error::new(ErrorKind::Other, "Invalid URL"));
+    }
+}
+
 #[wasm_bindgen]
-pub fn sign () -> Result<JsValue, JsError> {
+pub fn sign (url: Option<String>) -> Result<JsValue, JsError> {
 
     let valid_window: bool = valid_window_domain();
 
@@ -81,32 +92,49 @@ pub fn sign () -> Result<JsValue, JsError> {
 
     let cnonce_group = generate_cnonce();
 
-    if ENV == "uat" {
-        log(&format!("random_factor: {}", cnonce_group.random_factor.to_string()));
+    if ENV == "UAT" {
+        log(&format!("[FROM WASM] random_factor: {}", cnonce_group.random_factor.to_string()));
     }
 
-    // hash origin uuid, and random factor
-    let mut context = Context::new(&SHA256);
-    context.update(format!(
-        "{}|{}",
-        cnonce_group.uuid.as_simple(),
-        cnonce_group.random_factor.to_string()
-    ).as_bytes());
-    let sha256_result = context.finish();
-    let sha256_result_str = base64::encode(sha256_result.as_ref());
+    let sha_result;
+
+    if url.is_none() {
+        // hash origin uuid, and random factor
+        let mut context = Context::new(&SHA256);
+        context.update(format!(
+            "{}|{}",
+            cnonce_group.uuid.as_simple(),
+            cnonce_group.random_factor.to_string()
+        ).as_bytes());
+        sha_result = context.finish();
+    } else {
+        let valid_url = match valid_current_url(url.unwrap()) {
+            Ok(url) => url,
+            Err(err) => return Err(JsError::from(err))
+        };
+        let mut context = Context::new(&SHA512);
+        context.update(format!(
+            "{}|{}|{}",
+            cnonce_group.uuid.as_simple(),
+            cnonce_group.random_factor.to_string(),
+            valid_url
+        ).as_bytes());
+        sha_result = context.finish();
+    }
+
+    let sha_result_str = base64::encode(sha_result.as_ref());
 
     if ENV == "UAT" {
-        log(&format!("sha256_result_str: {}", sha256_result_str));
+        log(&format!("[FROM WASM] sha256_result_str: {}", sha_result_str));
     }
 
     let key = hmac::Key::new(hmac::HMAC_SHA512, SECRET.as_bytes());
-    let mac = hmac::sign(&key, sha256_result_str.as_bytes());
+    let mac = hmac::sign(&key, sha_result_str.as_bytes());
     let b64_encoded_sig = base64::encode(mac.as_ref());
 
-    if ENV == "uat" {
-        log(&format!("b64_encoded_sig: {}", b64_encoded_sig));
+    if ENV == "UAT" {
+        log(&format!("[FROM WASM] b64_encoded_sig: {}", b64_encoded_sig));
     }
-
 
     // hmac sign by salt and sha256 hash
     let mut obfuscated_uuid_str = cnonce_group.uuid.as_simple().to_string();

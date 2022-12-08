@@ -8,6 +8,7 @@ use ring::digest::{Context, SHA256, SHA512};
 use serde::{Serialize, Deserialize};
 use serde;
 use web_sys;
+use js_sys;
 use base64;
 use std::io::{Error, ErrorKind};
 
@@ -19,7 +20,8 @@ struct CnonceGroup {
 #[derive(Serialize, Deserialize)]
 struct SignatureFactors {
     cnonce: String,
-    signature: String
+    signature: String,
+    timestamp: String
 }
 
 #[wasm_bindgen]
@@ -96,15 +98,23 @@ pub fn sign (url: Option<String>) -> Result<JsValue, JsError> {
         log(&format!("[FROM WASM] random_factor: {}", cnonce_group.random_factor.to_string()));
     }
 
+    let timestamp = js_sys::Date::now();
+    let timestamp_in_seconds = (&(timestamp.to_string())[..10]).to_string();
+
+    if ENV == "UAT" {
+        log(&format!("[FROM WASM] timestamp: {}", timestamp.to_string()));
+    }
+
     let sha_result;
 
     if url.is_none() {
         // hash origin uuid, and random factor
         let mut context = Context::new(&SHA256);
         context.update(format!(
-            "{}|{}",
+            "{}|{}|{}",
             cnonce_group.uuid.as_simple(),
-            cnonce_group.random_factor.to_string()
+            cnonce_group.random_factor.to_string(),
+            timestamp_in_seconds
         ).as_bytes());
         sha_result = context.finish();
     } else {
@@ -114,10 +124,11 @@ pub fn sign (url: Option<String>) -> Result<JsValue, JsError> {
         };
         let mut context = Context::new(&SHA512);
         context.update(format!(
-            "{}|{}|{}",
+            "{}|{}|{}|{}",
             cnonce_group.uuid.as_simple(),
             cnonce_group.random_factor.to_string(),
-            valid_url
+            valid_url,
+            timestamp_in_seconds
         ).as_bytes());
         sha_result = context.finish();
     }
@@ -141,7 +152,8 @@ pub fn sign (url: Option<String>) -> Result<JsValue, JsError> {
     obfuscated_uuid_str.push_str(&(cnonce_group.public_factor.to_string()));
     let result = SignatureFactors {
         cnonce: obfuscated_uuid_str,
-        signature: b64_encoded_sig
+        signature: b64_encoded_sig,
+        timestamp: timestamp_in_seconds
     };
     Ok(serde_wasm_bindgen::to_value(&result).unwrap())
 }

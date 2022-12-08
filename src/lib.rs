@@ -1,11 +1,26 @@
 extern crate wasm_bindgen;
 
-use ring::hmac;
-use ring::digest::{Context, SHA256};
-use data_encoding::BASE64;
-use data_encoding::HEXUPPER;
 use wasm_bindgen::prelude::*;
+use uuid::Uuid;
+use rand::Rng;
+use ring::{hmac};
+use ring::digest::{Context, SHA256, SHA512};
+use serde::{Serialize, Deserialize};
+use serde;
 use web_sys;
+use base64;
+use std::io::{Error, ErrorKind};
+
+struct CnonceGroup {
+    uuid: uuid::Uuid,
+    public_factor: i64,
+    random_factor: i64
+}
+#[derive(Serialize, Deserialize)]
+struct SignatureFactors {
+    cnonce: String,
+    signature: String
+}
 
 #[wasm_bindgen]
 extern "C" {
@@ -25,8 +40,21 @@ extern "C" {
     fn log_many(a: &str, b: &str);
 }
 
-#[wasm_bindgen]
-pub fn valid_window_domain () -> bool {
+fn generate_cnonce() -> CnonceGroup {
+    let uuid = Uuid::new_v4();
+    let mut rng = rand::thread_rng();
+    let random_factor: i64 = rng.gen_range(0..1000000);
+    let public_factor: i64 = random_factor * 19801;
+    // let obsfucated_factor: i64 = public_factor * 20201;
+
+    return CnonceGroup {
+        uuid: uuid,
+        public_factor: public_factor,
+        random_factor: random_factor
+    };
+}
+
+fn valid_window_domain () -> bool {
     let location: web_sys::Location = web_sys::window().unwrap().location();
     let hostname: String = location.hostname().unwrap();
     let valid_hosts = std::env!("VALID_DOMAIN").split(",");
@@ -39,8 +67,18 @@ pub fn valid_window_domain () -> bool {
     return valid
 }
 
+fn valid_current_url (url: String) -> Result<String, Error> {
+    let location: web_sys::Location = web_sys::window().unwrap().location();
+    let current_url: String = location.href().unwrap();
+    if current_url.eq(&url) {
+        return Ok(current_url);
+    } else {
+        return Err(Error::new(ErrorKind::Other, "Invalid URL"));
+    }
+}
+
 #[wasm_bindgen]
-pub fn ron_weasley_sign (message: &str, cnonce: &str) -> Result<String, JsError> {
+pub fn sign (url: Option<String>) -> Result<JsValue, JsError> {
 
     let valid_window: bool = valid_window_domain();
 
@@ -50,16 +88,62 @@ pub fn ron_weasley_sign (message: &str, cnonce: &str) -> Result<String, JsError>
     }
 
     const SECRET: &str = std::env!("SECRET");
+    const ENV: &str = std::env!("ENV");
 
-    let mut context = Context::new(&SHA256);
-    context.update(format!("{}|{}", cnonce, message).as_bytes());
-    let sha256_result = context.finish();
-    let sha256_result_str = format!("{}", HEXUPPER.encode(sha256_result.as_ref()));
+    let cnonce_group = generate_cnonce();
+
+    if ENV == "UAT" {
+        log(&format!("[FROM WASM] random_factor: {}", cnonce_group.random_factor.to_string()));
+    }
+
+    let sha_result;
+
+    if url.is_none() {
+        // hash origin uuid, and random factor
+        let mut context = Context::new(&SHA256);
+        context.update(format!(
+            "{}|{}",
+            cnonce_group.uuid.as_simple(),
+            cnonce_group.random_factor.to_string()
+        ).as_bytes());
+        sha_result = context.finish();
+    } else {
+        let valid_url = match valid_current_url(url.unwrap()) {
+            Ok(url) => url,
+            Err(err) => return Err(JsError::from(err))
+        };
+        let mut context = Context::new(&SHA512);
+        context.update(format!(
+            "{}|{}|{}",
+            cnonce_group.uuid.as_simple(),
+            cnonce_group.random_factor.to_string(),
+            valid_url
+        ).as_bytes());
+        sha_result = context.finish();
+    }
+
+    let sha_result_str = base64::encode(sha_result.as_ref());
+
+    if ENV == "UAT" {
+        log(&format!("[FROM WASM] sha256_result_str: {}", sha_result_str));
+    }
 
     let key = hmac::Key::new(hmac::HMAC_SHA512, SECRET.as_bytes());
-    let mac = hmac::sign(&key, sha256_result_str.as_bytes());
-    let b64_encoded_sig = BASE64.encode(mac.as_ref());
-    Ok(b64_encoded_sig.to_uppercase())
+    let mac = hmac::sign(&key, sha_result_str.as_bytes());
+    let b64_encoded_sig = base64::encode(mac.as_ref());
+
+    if ENV == "UAT" {
+        log(&format!("[FROM WASM] b64_encoded_sig: {}", b64_encoded_sig));
+    }
+
+    // hmac sign by salt and sha256 hash
+    let mut obfuscated_uuid_str = cnonce_group.uuid.as_simple().to_string();
+    obfuscated_uuid_str.push_str(&(cnonce_group.public_factor.to_string()));
+    let result = SignatureFactors {
+        cnonce: obfuscated_uuid_str,
+        signature: b64_encoded_sig
+    };
+    Ok(serde_wasm_bindgen::to_value(&result).unwrap())
 }
 
 #[cfg(test)]

@@ -71,7 +71,7 @@ fn valid_window_domain () -> bool {
 
 fn valid_current_url (url: String) -> Result<String, Error> {
     let location: web_sys::Location = web_sys::window().unwrap().location();
-    let current_url: String = format!("{}{}", location.origin().unwrap(), location.pathname().unwrap());
+    let current_url: String = format!("{}{}{}", location.origin().unwrap(), location.pathname().unwrap(), location.search().unwrap());
     if current_url.eq(&url) {
         return Ok(current_url);
     } else {
